@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Cartographie</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+    <script src="js/Leaflet.CountrySelect.js"></script>
+    <script src="js/leaflet.ajax.min.js"></script>
+    <!--script src="js/countries.geo.json"></script> -->
+    <script src="js/visitedCountries.geo.json"></script>
+    <script src='//d3js.org/d3.v5.min.js'></script>
+
+
+    <style>
+        #mapid {
+            height: 400px;
+            width: 800px;
+            margin: 0 auto;
+        }
+
+        .info {
+            padding: 6px 8px;
+            font: 14px/16px Arial, Helvetica, sans-serif;
+            background: white;
+            background: rgba(255,255,255,0.8);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+            min-width: 116px;
+        }
+        .info h4 {
+            margin: 0 0 5px;
+            color: #777;
+        }
+
+        .legend {
+            line-height: 18px;
+            color: #555;
+        }
+        .legend i {
+            width: 18px;
+            height: 18px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+<div id="mapid"></div>
+<script>
+    var map = L.map('mapid').setView([0, 0], 1);
+
+    var cartodbAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attribution">CARTO</a>';
+
+    var positron = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+        attribution: cartodbAttribution
+    }).addTo(map);
+
+    var select = L.countrySelect({include: ["France","Morocco","United Kingdom","Japan","Algeria","Tunisia","Spain"]});
+    //var pays =
+    select.addTo(map);
+
+    select.on('change', function(e){
+        if (e.feature === undefined){ //Do nothing on title
+            return;
+        }
+        var country = L.geoJson(e.feature);
+        if (this.previousCountry != null){
+            map.removeLayer(this.previousCountry);
+        }
+        this.previousCountry = country;
+
+        map.addLayer(country);
+        map.fitBounds(country.getBounds());
+
+    });
+
+    var info = L.control();
+
+    info.onAdd = function(map) {
+        this._div = L.DomUtil.create("div", "info");
+        this.update();
+        return this._div;
+    };
+
+    info.update = function(props) {
+        this._div.innerHTML =
+            "<h4>pays visités</h4>" +
+            (props
+                ? "<b>" +
+                props.name +
+                "</b>: "+props.VisitesNumber +" fois<br />" +""
+
+                : "Choisissez un pays");
+    };
+
+    info.addTo(map);
+
+    //charge les limites des pays
+    //var geojsonLayer = new L.GeoJSON.AJAX("js/countries.geo.json").addTo(map);
+
+    //défini l'échelle de couleur
+    var colorScale = d3.scaleSequential()
+        .domain([0, 100])
+        .interpolator(d3['interpolatePlasma']);
+    /*
+        var c = colorScale(20);
+        c = colorScale(0);
+        c = colorScale(100);
+    */
+    //définie le style du pays
+    //merci à https://leafletjs.com/examples/choropleth/
+   // var nbAlea = d3.randomUniform(0, 100);
+    function style(feature) {
+        console.log(feature);
+        console.log( colorScale(feature.properties.importance));
+        return {
+            fillColor: colorScale(feature.properties.importance),
+          //  fillColor: colorScale(nbAlea()),
+            weight: 2,
+            opacity: 1,
+            color: 'white',
+            dashArray: '3',
+            fillOpacity: 0.7
+        };
+    }
+
+    function highlightFeature(e) {
+        var layer = e.target;
+
+        layer.setStyle({
+            weight: 3,
+            color: '#666',
+            dashArray: '',
+            fillOpacity: 0.7
+        });
+
+        if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+            layer.bringToFront();
+        }
+
+        info.update(layer.feature.properties);
+    }
+
+
+    var geojson;
+
+    function resetHighlight(e) {
+        geojson.resetStyle(e.target);
+        info.update();
+    }
+
+    function zoomToFeature(e) {
+        map.fitBounds(e.target.getBounds());
+    }
+
+    function onEachFeature(feature, layer) {
+        layer.on({
+            mouseover: highlightFeature,
+            mouseout: resetHighlight,
+            click: zoomToFeature
+        });
+    }
+    function getColor(d) {
+        return d > 1000 ? '#800026' :
+            d > 500  ? '#BD0026' :
+                d > 200  ? '#E31A1C' :
+                    d > 100  ? '#FC4E2A' :
+                        d > 50   ? '#FD8D3C' :
+                            d > 20   ? '#FEB24C' :
+                                d > 10   ? '#FED976' :
+                                    '#FFEDA0';
+    }
+    //charge les limites des pays avec leur style
+   geojson = L.geoJson(statesData, {style: style,onEachFeature: onEachFeature}).addTo(map);
+
+    var legend = L.control({ position: "bottomright" });
+
+    legend.onAdd = function(map) {
+        var div = L.DomUtil.create("div", "info legend"),
+            grades = [10, 20, 40, 60, 80, 100],
+            labelGrades = ["1","2-3","4-5","5-6","6-8","10"],
+            labels = [],
+            from,
+            to;
+
+        for (var i = 0; i < grades.length; i++) {
+            from = grades[i];
+            to = grades[i + 1];
+            console.log( colorScale(from +1));
+            labels.push(
+                '<i style="background:' +
+                colorScale(from +1) +
+                '"></i> ' +
+                labelGrades[i]+ (grades[i+1]? " visites" : " visites+")
+            );
+        }
+
+        div.innerHTML = labels.join("<br>");
+        return div;
+    };
+
+    legend.addTo(map);
+
+</script>
+</body>
+</html>
